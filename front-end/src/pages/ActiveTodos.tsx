@@ -26,24 +26,28 @@ function ActiveTodos() {
   };
 
   const saveTodo = async () => {
-    if (title.current.value == "") {
-      toast.info("Please Provide Title");
-      return;
-    }
-    const userId = getLoginInfo()?.userId;
-    if (userId != null) {
-      const response = await custom_axios.post(
+    try {
+      if (!title.current.value.trim()) {
+        toast.info("Please Provide Title");
+        return;
+      }
+      
+      const userId = getLoginInfo()?.userId;
+      if (!userId) {
+        toast.error("Authentication required");
+        return;
+      }
+  
+      await custom_axios.post(
         ApiConstants.TODO.ADD(userId),
-        {
-          title: title.current.value,
-        },
-        { headers: { Authorization: "Bearer " + localStorage.getItem("token") } }
+        { title: title.current.value.trim() }
       );
-      getAllNotCompletedTodos();
+      
+      await getAllNotCompletedTodos();
       title.current.value = "";
-      toast.success("Todo Added Scuessfully!!");
-    } else {
-      toast.info("Sorry you are not authenticated");
+      toast.success("Todo Added Successfully!");
+    } catch (error) {
+      console.error("Error saving todo:", error);
     }
   };
 

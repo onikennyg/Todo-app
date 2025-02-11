@@ -17,13 +17,13 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
     const user = await this.userService.findUserByEmail(email);
 
     if (!user) {
-      throw new UnauthorizedException(`User not found: ${email}`);
+      throw new UnauthorizedException('User Not Found: ' + email);
     }
 
     if (user.password !== password) {
-      throw new UnauthorizedException('Invalid password');
+      throw new UnauthorizedException('Invalid Password');
     }
 
-    return user; // ✅ Ensuring function always returns a User
+    return user;
   }
 }

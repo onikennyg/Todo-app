@@ -1,7 +1,7 @@
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 import { Todo } from 'src/todo/entities/todo.entity';
-import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 
-@Entity()
+@Entity() // Ensure this decorator is present
 export class User {
   @PrimaryGeneratedColumn()
   id: number;
@@ -21,7 +21,6 @@ export class User {
   @Column()
   role: string;
 
-  // one user can have multipe todos
   @OneToMany(() => Todo, (todo) => todo.user)
   todos: Todo[];
 }

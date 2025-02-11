@@ -11,23 +11,28 @@ const Login = () => {
   let password: any = React.useRef();
 
   const loginApp = async () => {
-    if (email.current.value == "" || password.current.value == "") {
-      toast.info("Please fill the information");
-      return;
-    }
     try {
+      if (!email.current.value || !password.current.value) {
+        toast.info("Please fill in all fields");
+        return;
+      }
+  
       const response = await custom_axios.post(ApiConstants.LOGIN, {
-        email: email.current.value,
-        password: password.current.value,
+        email: email.current.value.trim(),
+        password: password.current.value
       });
-      localStorage.setItem("token", response.data.token);
-      dispatchEvent(new Event("storage"));
-      navigate("/");
+  
+      if (response.data.token) {
+        localStorage.setItem("token", response.data.token);
+        dispatchEvent(new Event("storage"));
+        navigate("/active");
+      } else {
+        toast.error("Invalid response from server");
+      }
     } catch (error: any) {
-      if (error.response.status == 401) toast.warn(error.response.data.message);
+      const message = error.response?.data?.message || "Login failed";
+      toast.error(message);
     }
-
-    // navigate("/");
   };
 
   return (

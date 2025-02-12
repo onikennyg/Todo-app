@@ -1,21 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from './user/entities/user.entity'; // Ensure this import is correct
-import { Todo } from './todo/entities/todo.entity'; // Ensure this import is correct
 import { UserModule } from './user/user.module';
 import { TodoModule } from './todo/todo.module';
 import { AuthModule } from './auth/auth.module';
-
-// FIND ALL USERS
-// ADD USER
-// DELETE USER
-
-// ADD TODO BASED ON USER ID
-// FIND ALL TODOS BASED ON USER ID (NOT COMPLETED)
-// FIND ALL COMPLETED TODOS BASED ON USER ID (COMPLETED)
-// MARK TODO AS COMPLETED BASED ON TODO ID
-// DELETE TODO  BASED ON TODO ID
+import { TaskModule } from './task/task.module'; // Import the TaskModule
 
 @Module({
   imports: [
@@ -32,14 +21,15 @@ import { AuthModule } from './auth/auth.module';
         synchronize: configService.get<boolean>('DATABASE_SYNC'),
         logging: configService.get<boolean>('DATABASE_LOGGING'),
         database: configService.get('DATABASE_NAME'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],  // Note the /** pattern,
+        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        autoLoadEntities: true, // Ensure entities are loaded
       }),
     }),
     TodoModule,
     UserModule,
     AuthModule,
+    TaskModule, // Add the TaskModule to the imports
   ],
-
   controllers: [],
   providers: [],
 })

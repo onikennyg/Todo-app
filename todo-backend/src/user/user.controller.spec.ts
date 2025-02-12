@@ -2,22 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { IPaginationOptions } from 'nestjs-typeorm-paginate';
-
-const mockUserService = () => ({
-  create: jest.fn(),
-  findAll: jest.fn(),
-  findOne: jest.fn(),
-  update: jest.fn(),
-  remove: jest.fn(),
-});
-
-type MockUserService = Partial<Record<keyof UserService, jest.Mock>>;
+import { RoleGuard } from '../auth/guard/role.guard';
+import { Constants } from '../utils/constants';
+import { NotFoundException } from '@nestjs/common';
 
 describe('UserController', () => {
-  let userController: UserController;
-  let userService: MockUserService;
+  let controller: UserController;
+  let service: UserService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -25,102 +16,67 @@ describe('UserController', () => {
       providers: [
         {
           provide: UserService,
-          useFactory: mockUserService,
+          useValue: {
+            create: jest.fn(),
+            findAll: jest.fn(),
+            findUserById: jest.fn(),
+            findUserByEmail: jest.fn(),
+            remove: jest.fn(),
+          },
         },
       ],
     }).compile();
 
-    userController = module.get<UserController>(UserController);
-    userService = module.get(UserService);
+    controller = module.get<UserController>(UserController);
+    service = module.get<UserService>(UserService);
   });
 
   it('should be defined', () => {
-    expect(userController).toBeDefined();
+    expect(controller).toBeDefined();
   });
 
   describe('create', () => {
     it('should create a user', async () => {
       const createUserDto: CreateUserDto = {
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'test@example.com',
-        password: 'password',
-        role: 'user',
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john.doe@example.com',
+        password: 'securePassword',
       };
-      const mockUser = { id: 1, ...createUserDto };
 
-      (userService.create as jest.Mock).mockResolvedValue(mockUser);
+      const user = {
+        id: 1,
+        ...createUserDto,
+        role: Constants.ROLES.NORMAL_ROLE,
+      };
 
-      const result = await userController.create(createUserDto);
+      jest.spyOn(service, 'create').mockResolvedValue(user as any);
 
-      expect(userService.create).toHaveBeenCalledWith(createUserDto);
-      expect(result).toEqual(mockUser);
+      const result = await controller.create(createUserDto);
+
+      expect(result).toEqual(user);
+      expect(service.create).toHaveBeenCalledWith(createUserDto);
     });
   });
 
   describe('findAll', () => {
-    it('should return a paginated list of users', async () => {
-      const options: IPaginationOptions = { page: 1, limit: 10 };
-      const mockUsers = [
+    it('should return all users', async () => {
+      const users = [
         {
           id: 1,
-          firstName: 'Test',
-          lastName: 'User',
-          email: 'test@example.com',
-          password: 'password',
-          role: 'user',
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john.doe@example.com',
+          role: Constants.ROLES.ADMIN_ROLE,
         },
       ];
 
-      (userService.findAll as jest.Mock).mockResolvedValue(mockUsers);
+      jest.spyOn(service, 'findAll').mockResolvedValue(users as any);
 
-      const result = await userController.findAll(options.page, options.limit);
+      const result = await controller.findAll({} as any);
 
-      expect(userService.findAll).toHaveBeenCalledWith(options);
-      expect(result).toEqual(mockUsers);
-    });
-  });
-
-  describe('findOne', () => {
-    it('should return a user by id', async () => {
-      const userId = 1;
-      const mockUser = {
-        id: userId,
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'test@example.com',
-        password: 'password',
-        role: 'user',
-      };
-
-      (userService.findOne as jest.Mock).mockResolvedValue(mockUser);
-
-      const result = await userController.findOne(userId);
-
-      expect(userService.findOne).toHaveBeenCalledWith(userId);
-      expect(result).toEqual(mockUser);
-    });
-  });
-
-  describe('update', () => {
-    it('should update a user', async () => {
-      const userId = 1;
-      const updateUserDto: UpdateUserDto = { firstName: 'Updated' };
-      const mockUser = {
-        id: userId,
-        firstName: 'Updated',
-        lastName: 'User',
-        email: 'test@example.com',
-        password: 'password',
-        role: 'user',
-      };
-
-      (userService.update as jest.Mock).mockResolvedValue(mockUser);
-
-      const result = await userController.update(userId, updateUserDto);
-
-      expect(userService.update).toHaveBeenCalledWith(userId, updateUserDto);
-      expect(result).toEqual(mockUser);
+      expect(result).toEqual(users);
+      expect(service.findAll).toHaveBeenCalled();
     });
   });
 
@@ -128,12 +84,19 @@ describe('UserController', () => {
     it('should remove a user', async () => {
       const userId = 1;
 
-      (userService.remove as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(service, 'remove').mockResolvedValue({ affected: 1 } as any); // Fix: Return DeleteResult
 
-      const result = await userController.remove(userId);
+      await controller.remove(userId.toString(), {} as any);
 
-      expect(userService.remove).toHaveBeenCalledWith(userId);
-      expect(result).toBeUndefined();
+      expect(service.remove).toHaveBeenCalledWith(userId);
+    });
+
+    it('should throw NotFoundException if user is not found', async () => {
+      const userId = 1;
+
+      jest.spyOn(service, 'remove').mockRejectedValue(new NotFoundException());
+
+      await expect(controller.remove(userId.toString(), {} as any)).rejects.toThrowError(NotFoundException);
     });
   });
 });

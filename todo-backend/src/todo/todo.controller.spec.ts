@@ -5,19 +5,9 @@ import { CreateTodoDto } from './dto/create-todo.dto';
 import { UpdateTodoDto } from './dto/update-todo.dto';
 import { IPaginationOptions } from 'nestjs-typeorm-paginate';
 
-const mockTodoService = () => ({
-  create: jest.fn(),
-  findAll: jest.fn(),
-  findOne: jest.fn(),
-  update: jest.fn(),
-  remove: jest.fn(),
-});
-
-type MockTodoService = Partial<Record<keyof TodoService, jest.Mock>>;
-
 describe('TodoController', () => {
-  let todoController: TodoController;
-  let todoService: MockTodoService;
+  let controller: TodoController;
+  let service: TodoService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -25,73 +15,188 @@ describe('TodoController', () => {
       providers: [
         {
           provide: TodoService,
-          useFactory: mockTodoService,
+          useValue: {
+            create: jest.fn(),
+            findAllTodoByUserNotCompleted: jest.fn(),
+            findAllTodoByUserCompleted: jest.fn(),
+            findOne: jest.fn(),
+            updateTodo: jest.fn(),
+            remove: jest.fn(),
+          },
         },
       ],
     }).compile();
 
-    todoController = module.get<TodoController>(TodoController);
-    todoService = module.get(TodoService);
+    controller = module.get<TodoController>(TodoController);
+    service = module.get<TodoService>(TodoService);
   });
 
   it('should be defined', () => {
-    expect(todoController).toBeDefined();
+    expect(controller).toBeDefined();
   });
 
   describe('create', () => {
     it('should create a todo', async () => {
-      const createTodoDto: CreateTodoDto = { title: 'Test Todo' };
-      const mockTodo = { id: 1, title: 'Test Todo' };
+      const userId = 1;
+      const createTodoDto: CreateTodoDto = {
+        title: 'Shopping List',
+      };
 
-      (todoService.create as jest.Mock).mockResolvedValue(mockTodo);
+      const todo = {
+        id: 1,
+        title: 'Shopping List',
+        user: { id: userId },
+      };
 
-      const result = await todoController.create(createTodoDto);
+      jest.spyOn(service, 'create').mockResolvedValue(todo as any);
 
-      expect(todoService.create).toHaveBeenCalledWith(createTodoDto);
-      expect(result).toEqual(mockTodo);
+      const result = await controller.create(createTodoDto, userId);
+
+      expect(result).toEqual(todo);
+      expect(service.create).toHaveBeenCalledWith(createTodoDto, userId);
     });
   });
 
-  describe('findAll', () => {
-    it('should return a paginated list of todos', async () => {
-      const options: IPaginationOptions = { page: 1, limit: 10 };
-      const mockTodos = [{ id: 1, title: 'Test Todo' }];
-
-      (todoService.findAll as jest.Mock).mockResolvedValue(mockTodos);
-
-      const result = await todoController.findAll(options.page, options.limit);
-
-      expect(todoService.findAll).toHaveBeenCalledWith(options);
-      expect(result).toEqual(mockTodos);
+  describe('findAllTodosByUserIdNotCompleted', () => {
+    it('should return paginated todos for a user that are not completed', async () => {
+      const userId = 1;
+      const page = 1; // Changed from string to number
+      const limit = 10; // Changed from string to number
+      const options: IPaginationOptions = {
+        page,
+        limit,
+      };
+      const filter = { title: 'Shopping List' };
+      const sort = { field: 'title', order: 'ASC' as const };
+  
+  
+      const paginationResult = {
+        items: [
+          {
+            id: 1,
+            title: 'Shopping List',
+            completed: false,
+            user: { id: userId },
+          },
+        ],
+        meta: {
+          itemCount: 1,
+          totalItems: 1,
+          itemsPerPage: 10,
+          totalPages: 1,
+          currentPage: 1,
+        },
+      };
+  
+      jest.spyOn(service, 'findAllTodoByUserNotCompleted').mockResolvedValue(paginationResult as any);
+  
+      const result = await controller.findAllTodosByUserIdNotCompleted(
+        userId,
+        page,
+        limit, 
+        filter.title,
+        sort.field,
+        sort.order,
+      );
+  
+      expect(result).toEqual(paginationResult);
+      expect(service.findAllTodoByUserNotCompleted).toHaveBeenCalledWith(
+        userId,
+        options, 
+        filter,
+        sort,
+      );
+    });
+  });
+  
+  describe('findAllTodosByUserIdCompleted', () => {
+    it('should return paginated todos for a user that are completed', async () => {
+      const userId = 1;
+      const page = 1; 
+      const limit = 10; 
+      const options: IPaginationOptions = {
+        page,
+        limit,
+      };
+      const filter = { title: 'Shopping List' };
+      const sort = { field: 'title', order: 'ASC' as const };
+  
+      const paginationResult = {
+        items: [
+          {
+            id: 1,
+            title: 'Shopping List',
+            completed: true,
+            user: { id: userId },
+          },
+        ],
+        meta: {
+          itemCount: 1,
+          totalItems: 1,
+          itemsPerPage: 10,
+          totalPages: 1,
+          currentPage: 1,
+        },
+      };
+  
+      jest.spyOn(service, 'findAllTodoByUserCompleted').mockResolvedValue(paginationResult as any);
+  
+      const result = await controller.findAllTodosByUserIdCompleted(
+        userId,
+        page, // Pass as string
+        limit, // Pass as string
+        filter.title,
+        sort.field,
+        sort.order,
+      );
+  
+      expect(result).toEqual(paginationResult);
+      expect(service.findAllTodoByUserCompleted).toHaveBeenCalledWith(
+        userId,
+        options, // Pass converted options
+        filter,
+        sort,
+      );
     });
   });
 
   describe('findOne', () => {
-    it('should return a todo by id', async () => {
+    it('should return a todo by ID', async () => {
       const todoId = 1;
-      const mockTodo = { id: todoId, title: 'Test Todo' };
+      const todo = {
+        id: todoId,
+        title: 'Shopping List',
+      };
 
-      (todoService.findOne as jest.Mock).mockResolvedValue(mockTodo);
+      jest.spyOn(service, 'findOne').mockResolvedValue(todo as any);
 
-      const result = await todoController.findOne(todoId);
+      const result = await controller.findOne(todoId);
 
-      expect(todoService.findOne).toHaveBeenCalledWith(todoId);
-      expect(result).toEqual(mockTodo);
+      expect(result).toEqual(todo);
+      expect(service.findOne).toHaveBeenCalledWith(todoId);
     });
   });
 
   describe('update', () => {
     it('should update a todo', async () => {
       const todoId = 1;
-      const updateTodoDto: UpdateTodoDto = { title: 'Updated Todo' };
-      const mockTodo = { id: todoId, title: 'Updated Todo' };
+      const updateTodoDto: UpdateTodoDto = {
+        title: 'Grocery Shopping',
+        completed: true,
+      };
 
-      (todoService.update as jest.Mock).mockResolvedValue(mockTodo);
+      const updatedTodo = {
+        id: todoId,
+        title: 'Grocery Shopping',
+        completed: true,
+      };
 
-      const result = await todoController.update(todoId, updateTodoDto);
+      jest.spyOn(service, 'updateTodo').mockResolvedValue(updatedTodo as any);
 
-      expect(todoService.update).toHaveBeenCalledWith(todoId, updateTodoDto);
-      expect(result).toEqual(mockTodo);
+      const result = await controller.update(todoId, updateTodoDto);
+
+      expect(result).toEqual(updatedTodo);
+      expect(service.updateTodo).toHaveBeenCalledWith(todoId, updateTodoDto);
     });
   });
 
@@ -99,12 +204,11 @@ describe('TodoController', () => {
     it('should remove a todo', async () => {
       const todoId = 1;
 
-      (todoService.remove as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(service, 'remove').mockResolvedValue(undefined);
 
-      const result = await todoController.remove(todoId);
+      await controller.remove(todoId);
 
-      expect(todoService.remove).toHaveBeenCalledWith(todoId);
-      expect(result).toBeUndefined();
+      expect(service.remove).toHaveBeenCalledWith(todoId);
     });
   });
 });

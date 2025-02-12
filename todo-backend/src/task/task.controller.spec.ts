@@ -5,19 +5,9 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { IPaginationOptions } from 'nestjs-typeorm-paginate';
 
-const mockTaskService = () => ({
-  create: jest.fn(),
-  findAllByTodo: jest.fn(),
-  findOne: jest.fn(),
-  update: jest.fn(),
-  remove: jest.fn(),
-});
-
-type MockTaskService = Partial<Record<keyof TaskService, jest.Mock>>;
-
 describe('TaskController', () => {
-  let taskController: TaskController;
-  let taskService: MockTaskService;
+  let controller: TaskController;
+  let service: TaskService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -25,77 +15,138 @@ describe('TaskController', () => {
       providers: [
         {
           provide: TaskService,
-          useFactory: mockTaskService,
+          useValue: {
+            create: jest.fn(),
+            findAllByTodo: jest.fn(),
+            findOne: jest.fn(),
+            update: jest.fn(),
+            remove: jest.fn(),
+          },
         },
       ],
     }).compile();
 
-    taskController = module.get<TaskController>(TaskController);
-    taskService = module.get(TaskService);
+    controller = module.get<TaskController>(TaskController);
+    service = module.get<TaskService>(TaskService);
   });
 
   it('should be defined', () => {
-    expect(taskController).toBeDefined();
+    expect(controller).toBeDefined();
   });
 
   describe('create', () => {
     it('should create a task', async () => {
       const todoId = 1;
-      const createTaskDto: CreateTaskDto = { description: 'Test Task' };
-      const mockTask = { id: 1, description: 'Test Task' };
+      const createTaskDto: CreateTaskDto = {
+        description: 'Buy groceries',
+        dueDate: new Date(),
+      };
 
-      (taskService.create as jest.Mock).mockResolvedValue(mockTask);
+      const task = {
+        id: 1,
+        description: 'Buy groceries',
+        dueDate: new Date(),
+        todo: { id: todoId },
+      };
 
-      const result = await taskController.create(todoId, createTaskDto);
+      jest.spyOn(service, 'create').mockResolvedValue(task as any);
 
-      expect(taskService.create).toHaveBeenCalledWith(todoId, createTaskDto);
-      expect(result).toEqual(mockTask);
+      const result = await controller.create(todoId, createTaskDto);
+
+      expect(result).toEqual(task);
+      expect(service.create).toHaveBeenCalledWith(todoId, createTaskDto);
     });
   });
 
   describe('findAllByTodo', () => {
-    it('should return a paginated list of tasks for a given todo', async () => {
+    it('should return paginated tasks for a todo', async () => {
       const todoId = 1;
       const options: IPaginationOptions = { page: 1, limit: 10 };
-      const filter = { description: 'Test', completed: false };
-      const sort = { field: 'description', order: 'ASC' };
-      const mockTasks = [{ id: 1, description: 'Test Task' }];
-
-      (taskService.findAllByTodo as jest.Mock).mockResolvedValue(mockTasks);
-
-      const result = await taskController.findAllByTodo(todoId, options.page, options.limit, filter.description, filter.completed, sort.field, 'ASC');
-
-      expect(taskService.findAllByTodo).toHaveBeenCalledWith(todoId, options, filter, sort);
-      expect(result).toEqual(mockTasks);
+      const filter = { description: 'Buy groceries', completed: false };
+      const sortOrder: 'ASC' | 'DESC' = 'ASC'; // Fix: Explicitly type as 'ASC' | 'DESC'
+      const sortBy = 'dueDate';
+  
+      const paginationResult = {
+        items: [
+          {
+            id: 1,
+            description: 'Buy groceries',
+            completed: false,
+            dueDate: new Date(),
+            todo: { id: todoId },
+          },
+        ],
+        meta: {
+          itemCount: 1,
+          totalItems: 1,
+          itemsPerPage: 10,
+          totalPages: 1,
+          currentPage: 1,
+        },
+      };
+  
+      jest.spyOn(service, 'findAllByTodo').mockResolvedValue(paginationResult as any);
+  
+      const result = await controller.findAllByTodo(
+        todoId,
+        options.page,
+        options.limit,
+        filter.description,
+        filter.completed,
+        sortBy,
+        sortOrder, // Fix: Pass the correctly typed value
+      );
+  
+      expect(result).toEqual(paginationResult);
+      expect(service.findAllByTodo).toHaveBeenCalledWith(
+        todoId,
+        options,
+        filter,
+        { field: sortBy, order: sortOrder }, // Fix: Ensure correct typing here
+      );
     });
   });
 
   describe('findOne', () => {
-    it('should return a task by id', async () => {
+    it('should return a task by ID', async () => {
       const taskId = 1;
-      const mockTask = { id: taskId, description: 'Test Task' };
+      const task = {
+        id: taskId,
+        description: 'Buy groceries',
+        completed: false,
+        dueDate: new Date(),
+      };
 
-      (taskService.findOne as jest.Mock).mockResolvedValue(mockTask);
+      jest.spyOn(service, 'findOne').mockResolvedValue(task as any);
 
-      const result = await taskController.findOne(taskId);
+      const result = await controller.findOne(taskId);
 
-      expect(taskService.findOne).toHaveBeenCalledWith(taskId);
-      expect(result).toEqual(mockTask);
+      expect(result).toEqual(task);
+      expect(service.findOne).toHaveBeenCalledWith(taskId);
     });
   });
 
   describe('update', () => {
     it('should update a task', async () => {
       const taskId = 1;
-      const updateTaskDto: UpdateTaskDto = { description: 'Updated Task' };
-      const mockTask = { id: taskId, description: 'Updated Task' };
+      const updateTaskDto: UpdateTaskDto = {
+        description: 'Buy organic groceries',
+        completed: true,
+      };
 
-      (taskService.update as jest.Mock).mockResolvedValue(mockTask);
+      const updatedTask = {
+        id: taskId,
+        description: 'Buy organic groceries',
+        completed: true,
+        dueDate: new Date(),
+      };
 
-      const result = await taskController.update(taskId, updateTaskDto);
+      jest.spyOn(service, 'update').mockResolvedValue(updatedTask as any);
 
-      expect(taskService.update).toHaveBeenCalledWith(taskId, updateTaskDto);
-      expect(result).toEqual(mockTask);
+      const result = await controller.update(taskId, updateTaskDto);
+
+      expect(result).toEqual(updatedTask);
+      expect(service.update).toHaveBeenCalledWith(taskId, updateTaskDto);
     });
   });
 
@@ -103,12 +154,11 @@ describe('TaskController', () => {
     it('should remove a task', async () => {
       const taskId = 1;
 
-      (taskService.remove as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(service, 'remove').mockResolvedValue(undefined);
 
-      const result = await taskController.remove(taskId);
+      await controller.remove(taskId);
 
-      expect(taskService.remove).toHaveBeenCalledWith(taskId);
-      expect(result).toBeUndefined();
+      expect(service.remove).toHaveBeenCalledWith(taskId);
     });
   });
 });

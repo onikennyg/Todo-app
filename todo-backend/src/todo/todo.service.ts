@@ -24,7 +24,8 @@ export class TodoService {
     todo.title = createTodoDto.title;
     todo.date = new Date().toLocaleString();
     todo.completed = false;
-    todo.user = await this.userService.findUserById(userId);
+    const user = await this.userService.findUserById(userId); // Get the user
+    todo.user = user; // Assign the user
     return this.todoRepository.save(todo);
   }
 
@@ -89,7 +90,7 @@ export class TodoService {
   async findOne(id: number): Promise<Todo> {
     const todo = await this.todoRepository.findOne({
       where: { id },
-      relations: ['tasks'], // Load tasks for the todo
+      relations: ['tasks', 'user'], // Load tasks for the todo
     });
     if (!todo) {
       throw new NotFoundException(`Todo with ID "${id}" not found`);

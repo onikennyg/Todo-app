@@ -1,32 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { TodoService } from './todo.service';
-import { TodoRepository } from './repo/todo.repository'; // Adjust the path
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { TodoService } from './todo.service';
 import { Todo } from './entities/todo.entity';
+import { TodoRepository } from './repo/todo.repository';
+import { UserService } from '../user/user.service';
+import { User } from '../user/entities/user.entity';
+import { IPaginationOptions, paginate, Pagination } from 'nestjs-typeorm-paginate';
 import { NotFoundException } from '@nestjs/common';
-import { CreateTodoDto } from './dto/create-todo.dto';
-import { UpdateTodoDto } from './dto/update-todo.dto';
-
-const mockTodoRepository = () => ({
-  create: jest.fn(),
-  save: jest.fn(),
-  findOne: jest.fn(),
-  update: jest.fn(),
-  softDelete: jest.fn(),
-  createQueryBuilder: jest.fn().mockReturnValue({
-    leftJoinAndSelect: jest.fn().mockReturnThis(),
-    where: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    getMany: jest.fn().mockResolvedValue([]),
-    paginate: jest.fn().mockResolvedValue([]),
-  }),
-});
-
-type MockRepository<T = any> = Partial<Record<keyof TodoRepository, jest.Mock>>;
 
 describe('TodoService', () => {
-  let todoService: TodoService;
-  let todoRepository: MockRepository;
+  let service: TodoService;
+  let todoRepository: TodoRepository;
+  let userService: UserService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -34,102 +19,233 @@ describe('TodoService', () => {
         TodoService,
         {
           provide: getRepositoryToken(Todo),
-          useFactory: mockTodoRepository,
+          useClass: TodoRepository,
+        },
+        {
+          provide: UserService,
+          useValue: {
+            findUserById: jest.fn(),
+          },
         },
       ],
     }).compile();
 
-    todoService = module.get<TodoService>(TodoService);
-    todoRepository = module.get(getRepositoryToken(Todo));
+    service = module.get<TodoService>(TodoService);
+    todoRepository = module.get<TodoRepository>(getRepositoryToken(Todo));
+    userService = module.get<UserService>(UserService);
   });
 
   it('should be defined', () => {
-    expect(todoService).toBeDefined();
+    expect(service).toBeDefined();
   });
 
   describe('create', () => {
     it('should create a todo', async () => {
-      const createTodoDto: CreateTodoDto = { title: 'Test Todo' };
-      const mockTodo = { id: 1, title: 'Test Todo' };
+      const userId = 1;
+      const createTodoDto = {
+        title: 'Shopping List',
+      };
 
-      (todoRepository.create as jest.Mock).mockReturnValue(mockTodo);
-      (todoRepository.save as jest.Mock).mockResolvedValue(mockTodo);
+      const user = new User();
+      user.id = userId;
 
-      const result = await todoService.create(createTodoDto);
+      const todo = new Todo();
+      todo.title = createTodoDto.title;
+      todo.date = new Date().toLocaleString();
+      todo.completed = false;
+      todo.user = user;
 
-      expect(todoRepository.create).toHaveBeenCalledWith(createTodoDto);
-      expect(todoRepository.save).toHaveBeenCalledWith(mockTodo);
-      expect(result).toEqual(mockTodo);
+      jest.spyOn(userService, 'findUserById').mockResolvedValue(user);
+      jest.spyOn(todoRepository, 'save').mockResolvedValue(todo);
+
+      const result = await service.create(createTodoDto, userId);
+
+      expect(result).toEqual(todo);
+      expect(userService.findUserById).toHaveBeenCalledWith(userId);
+      expect(todoRepository.save).toHaveBeenCalledWith(todo);
+    });
+
+    it('should throw NotFoundException if user is not found', async () => {
+      const userId = 1;
+      const createTodoDto = {
+        title: 'Shopping List',
+      };
+
+      jest.spyOn(userService, 'findUserById').mockRejectedValue(new NotFoundException(`User with ID "${userId}" not found`));
+
+      await expect(service.create(createTodoDto, userId)).rejects.toThrowError(
+        `User with ID "${userId}" not found`,
+      );
     });
   });
 
-  describe('findAll', () => {
-    it('should return a paginated list of todos', async () => {
-      const options = { page: 1, limit: 10 };
-      const mockTodos = [{ id: 1, title: 'Test Todo' }];
+  describe('findAllTodoByUserNotCompleted', () => {
+    it('should return paginated todos for a user that are not completed', async () => {
+      const userId = 1;
+      const options: IPaginationOptions = { page: 1, limit: 10 };
+      const filter = { title: 'Shopping List' };
+      const sort = { field: 'title', order: 'ASC' as const };
 
-      (todoRepository.createQueryBuilder as jest.Mock)().getMany.mockResolvedValue(mockTodos);
-      const result = await todoService.findAll(options);
+      const user = new User();
+      user.id = userId;
 
-      expect(todoRepository.createQueryBuilder).toHaveBeenCalled();
-      expect(result).toEqual(mockTodos);
+      const todo = new Todo();
+      todo.title = 'Shopping List';
+      todo.completed = false;
+      todo.user = user;
+
+      const paginationResult: Pagination<Todo> = {
+        items: [todo],
+        meta: {
+          itemCount: 1,
+          totalItems: 1,
+          itemsPerPage: 10,
+          totalPages: 1,
+          currentPage: 1,
+        },
+      };
+
+      jest.spyOn(userService, 'findUserById').mockResolvedValue(user);
+      jest.spyOn(todoRepository, 'createQueryBuilder').mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[todo], 1]),
+      } as any);
+
+      const result = await service.findAllTodoByUserNotCompleted(
+        userId,
+        options,
+        filter,
+        sort,
+      );
+
+      expect(result).toEqual(paginationResult);
+      expect(userService.findUserById).toHaveBeenCalledWith(userId);
+    });
+  });
+
+  describe('findAllTodoByUserCompleted', () => {
+    it('should return paginated todos for a user that are completed', async () => {
+      const userId = 1;
+      const options: IPaginationOptions = { page: 1, limit: 10 };
+      const filter = { title: 'Shopping List' };
+      const sort = { field: 'title', order: 'ASC' as const };
+
+      const user = new User();
+      user.id = userId;
+
+      const todo = new Todo();
+      todo.title = 'Shopping List';
+      todo.completed = true;
+      todo.user = user;
+
+      const paginationResult: Pagination<Todo> = {
+        items: [todo],
+        meta: {
+          itemCount: 1,
+          totalItems: 1,
+          itemsPerPage: 10,
+          totalPages: 1,
+          currentPage: 1,
+        },
+      };
+
+      jest.spyOn(userService, 'findUserById').mockResolvedValue(user);
+      jest.spyOn(todoRepository, 'createQueryBuilder').mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[todo], 1]),
+      } as any);
+
+      const result = await service.findAllTodoByUserCompleted(
+        userId,
+        options,
+        filter,
+        sort,
+      );
+
+      expect(result).toEqual(paginationResult);
+      expect(userService.findUserById).toHaveBeenCalledWith(userId);
     });
   });
 
   describe('findOne', () => {
-    it('should return a todo by id', async () => {
+    it('should return a todo by ID', async () => {
       const todoId = 1;
-      const mockTodo = { id: todoId, title: 'Test Todo' };
+      const todo = new Todo();
+      todo.id = todoId;
+      todo.title = 'Shopping List';
 
-      (todoRepository.findOne as jest.Mock).mockResolvedValue(mockTodo);
+      jest.spyOn(todoRepository, 'findOne').mockResolvedValue(todo);
 
-      const result = await todoService.findOne(todoId);
+      const result = await service.findOne(todoId);
 
-      expect(todoRepository.findOne).toHaveBeenCalledWith({ where: { id: todoId } });
-      expect(result).toEqual(mockTodo);
+      expect(result).toEqual(todo);
+      expect(todoRepository.findOne).toHaveBeenCalledWith({
+        where: { id: todoId },
+        relations: ['tasks', 'user'],
+      });
     });
 
     it('should throw NotFoundException if todo is not found', async () => {
       const todoId = 1;
 
-      (todoRepository.findOne as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(todoRepository, 'findOne').mockResolvedValue(null);
 
-      await expect(todoService.findOne(todoId)).rejects.toThrow(NotFoundException);
+      await expect(service.findOne(todoId)).rejects.toThrowError(
+        `Todo with ID "${todoId}" not found`,
+      );
     });
   });
 
-  describe('update', () => {
+  describe('updateTodo', () => {
     it('should update a todo', async () => {
       const todoId = 1;
-      const updateTodoDto: UpdateTodoDto = { title: 'Updated Todo' };
-      const mockTodo = { id: todoId, title: 'Test Todo' };
-      const updatedTodo = { id: todoId, title: 'Updated Todo' };
+      const updateTodoDto = {
+        title: 'Grocery Shopping',
+        completed: true,
+      };
 
-      (todoService.findOne as jest.Mock).mockResolvedValue(mockTodo);
-      (todoRepository.update as jest.Mock).mockResolvedValue(updatedTodo);
-      (todoService.findOne as jest.Mock).mockResolvedValue(updatedTodo);
+      const todo = new Todo();
+      todo.id = todoId;
+      todo.title = 'Shopping List';
+      todo.completed = false;
 
-      const result = await todoService.update(todoId, updateTodoDto);
+      jest.spyOn(service, 'findOne').mockResolvedValue(todo);
+      jest.spyOn(todoRepository, 'update').mockResolvedValue({ affected: 1 } as any);
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        ...todo,
+        ...updateTodoDto,
+      });
 
-      expect(todoService.findOne).toHaveBeenCalledWith(todoId);
+      const result = await service.updateTodo(todoId, updateTodoDto);
+
+      expect(result).toEqual({
+        ...todo,
+        ...updateTodoDto,
+      });
+      expect(service.findOne).toHaveBeenCalledWith(todoId);
       expect(todoRepository.update).toHaveBeenCalledWith(todoId, updateTodoDto);
-      expect(todoService.findOne).toHaveBeenCalledWith(todoId);
-      expect(result).toEqual(mockTodo);
     });
   });
 
   describe('remove', () => {
     it('should remove a todo', async () => {
       const todoId = 1;
-      const mockTodo = { id: todoId, title: 'Test Todo' };
+      const todo = new Todo();
+      todo.id = todoId;
 
-      (todoService.findOne as jest.Mock).mockResolvedValue(mockTodo);
-      (todoRepository.softDelete as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(service, 'findOne').mockResolvedValue(todo);
+      jest.spyOn(todoRepository, 'delete').mockResolvedValue({ affected: 1 } as any);
 
-      await todoService.remove(todoId);
+      await service.remove(todoId);
 
-      expect(todoService.findOne).toHaveBeenCalledWith(todoId);
-      expect(todoRepository.softDelete).toHaveBeenCalledWith(todoId);
+      expect(service.findOne).toHaveBeenCalledWith(todoId);
+      expect(todoRepository.delete).toHaveBeenCalledWith(todoId);
     });
   });
 });

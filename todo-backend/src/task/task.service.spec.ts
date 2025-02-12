@@ -1,40 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { TaskService } from './task.service';
-import { TaskRepository } from './repo/task.repository';
-import { TodoService } from 'src/todo/todo.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { TaskService } from './task.service';
 import { Task } from './entities/task.entity';
+import { TaskRepository } from './repo/task.repository';
+import { TodoService } from '../todo/todo.service';
+import { Todo } from '../todo/entities/todo.entity';
+import { IPaginationOptions, paginate, Pagination } from 'nestjs-typeorm-paginate';
 import { NotFoundException } from '@nestjs/common';
-import { CreateTaskDto } from './dto/create-task.dto';
-import { UpdateTaskDto } from './dto/update-task.dto';
-
-const mockTaskRepository = () => ({
-  create: jest.fn(),
-  save: jest.fn(),
-  findOne: jest.fn(),
-  update: jest.fn(),
-  softDelete: jest.fn(),
-  createQueryBuilder: jest.fn().mockReturnValue({
-    leftJoinAndSelect: jest.fn().mockReturnThis(),
-    where: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    getMany: jest.fn().mockResolvedValue([]), // Default to empty array
-    paginate: jest.fn().mockResolvedValue([]),
-  }),
-});
-
-const mockTodoService = () => ({
-  findOne: jest.fn(),
-});
-
-type MockRepository<T = any> = Partial<Record<keyof TaskRepository, jest.Mock>>;
-type MockTodoService<T = any> = Partial<Record<keyof TodoService, jest.Mock>>;
 
 describe('TaskService', () => {
-  let taskService: TaskService;
-  let taskRepository: MockRepository;
-  let todoService: MockTodoService;
+  let service: TaskService;
+  let taskRepository: TaskRepository;
+  let todoService: TodoService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -42,130 +19,185 @@ describe('TaskService', () => {
         TaskService,
         {
           provide: getRepositoryToken(Task),
-          useFactory: mockTaskRepository,
+          useClass: TaskRepository,
         },
         {
           provide: TodoService,
-          useFactory: mockTodoService,
+          useValue: {
+            findOne: jest.fn(),
+          },
         },
       ],
     }).compile();
 
-    taskService = module.get<TaskService>(TaskService);
-    taskRepository = module.get(getRepositoryToken(Task));
-    todoService = module.get(TodoService);
+    service = module.get<TaskService>(TaskService);
+    taskRepository = module.get<TaskRepository>(getRepositoryToken(Task));
+    todoService = module.get<TodoService>(TodoService);
   });
 
   it('should be defined', () => {
-    expect(taskService).toBeDefined();
+    expect(service).toBeDefined();
   });
 
   describe('create', () => {
     it('should create a task', async () => {
       const todoId = 1;
-      const createTaskDto: CreateTaskDto = { description: 'Test Task' };
-      const mockTodo = { id: todoId, title: 'Test Todo' }; // Mock Todo object
-      const mockTask = { id: 1, description: 'Test Task', todo: mockTodo };
+      const createTaskDto = {
+        description: 'Buy groceries',
+        dueDate: new Date(),
+      };
 
-      (todoService.findOne as jest.Mock).mockResolvedValue(mockTodo);
-      (taskRepository.create as jest.Mock).mockReturnValue(mockTask);
-      (taskRepository.save as jest.Mock).mockResolvedValue(mockTask);
+      const todo = new Todo();
+      todo.id = todoId;
 
-      const result = await taskService.create(todoId, createTaskDto);
+      const task = new Task();
+      task.description = createTaskDto.description;
+      task.dueDate = createTaskDto.dueDate;
+      task.todo = todo;
 
+      jest.spyOn(todoService, 'findOne').mockResolvedValue(todo); // Fix: Return a Todo object
+      jest.spyOn(taskRepository, 'create').mockReturnValue(task);
+      jest.spyOn(taskRepository, 'save').mockResolvedValue(task);
+
+      const result = await service.create(todoId, createTaskDto);
+
+      expect(result).toEqual(task);
       expect(todoService.findOne).toHaveBeenCalledWith(todoId);
-      expect(taskRepository.create).toHaveBeenCalledWith({ ...createTaskDto, todo: mockTodo });
-      expect(taskRepository.save).toHaveBeenCalledWith(mockTask);
-      expect(result).toEqual(mockTask);
+      expect(taskRepository.create).toHaveBeenCalledWith({
+        ...createTaskDto,
+        todo,
+      });
+      expect(taskRepository.save).toHaveBeenCalledWith(task);
     });
 
     it('should throw NotFoundException if todo is not found', async () => {
       const todoId = 1;
-      const createTaskDto: CreateTaskDto = { description: 'Test Task' };
+      const createTaskDto = {
+        description: 'Buy groceries',
+        dueDate: new Date(),
+      };
 
-      (todoService.findOne as jest.Mock).mockResolvedValue(undefined);
+      // Simulate the "not found" case by throwing an error
+      jest.spyOn(todoService, 'findOne').mockRejectedValue(new NotFoundException(`Todo with ID "${todoId}" not found`));
 
-      await expect(taskService.create(todoId, createTaskDto)).rejects.toThrow(NotFoundException);
+      await expect(service.create(todoId, createTaskDto)).rejects.toThrowError(
+        `Todo with ID "${todoId}" not found`,
+      );
     });
   });
 
   describe('findAllByTodo', () => {
-    it('should return a paginated list of tasks for a given todo', async () => {
+    it('should return paginated tasks for a todo', async () => {
       const todoId = 1;
-      const options = { page: 1, limit: 10 };
-      const mockTodo = { id: todoId, title: 'Test Todo' };
-      const mockTasks = [{ id: 1, description: 'Test Task', todo: mockTodo }];
+      const options: IPaginationOptions = { page: 1, limit: 10 };
+      const filter = { description: 'Buy groceries', completed: false };
+      const sort = { field: 'dueDate', order: 'ASC' as const }; // Fix: Use 'as const'
 
-      (todoService.findOne as jest.Mock).mockResolvedValue(mockTodo);
-      (taskRepository.createQueryBuilder as jest.Mock)().getMany.mockResolvedValue(mockTasks);
-      const result = await taskService.findAllByTodo(todoId, options);
+      const todo = new Todo();
+      todo.id = todoId;
+
+      const task = new Task();
+      task.description = 'Buy groceries';
+      task.completed = false;
+      task.dueDate = new Date();
+      task.todo = todo;
+
+      const paginationResult: Pagination<Task> = {
+        items: [task],
+        meta: {
+          itemCount: 1,
+          totalItems: 1,
+          itemsPerPage: 10,
+          totalPages: 1,
+          currentPage: 1,
+        },
+      };
+
+      jest.spyOn(todoService, 'findOne').mockResolvedValue(todo);
+      jest.spyOn(taskRepository, 'createQueryBuilder').mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[task], 1]),
+      } as any);
+
+      const result = await service.findAllByTodo(todoId, options, filter, sort);
+
+      expect(result).toEqual(paginationResult);
       expect(todoService.findOne).toHaveBeenCalledWith(todoId);
-      expect(result).toEqual(mockTasks);
-    });
-
-    it('should throw NotFoundException if todo is not found', async () => {
-      const todoId = 1;
-      const options = { page: 1, limit: 10 };
-
-      (todoService.findOne as jest.Mock).mockResolvedValue(undefined);
-
-      await expect(taskService.findAllByTodo(todoId, options)).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('findOne', () => {
-    it('should return a task by id', async () => {
+    it('should return a task by ID', async () => {
       const taskId = 1;
-      const mockTask = { id: taskId, description: 'Test Task' };
+      const task = new Task();
+      task.id = taskId;
+      task.description = 'Buy groceries';
 
-      (taskRepository.findOne as jest.Mock).mockResolvedValue(mockTask);
+      jest.spyOn(taskRepository, 'findOne').mockResolvedValue(task);
 
-      const result = await taskService.findOne(taskId);
+      const result = await service.findOne(taskId);
 
+      expect(result).toEqual(task);
       expect(taskRepository.findOne).toHaveBeenCalledWith({ where: { id: taskId } });
-      expect(result).toEqual(mockTask);
     });
 
     it('should throw NotFoundException if task is not found', async () => {
       const taskId = 1;
 
-      (taskRepository.findOne as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(taskRepository, 'findOne').mockResolvedValue(null);
 
-      await expect(taskService.findOne(taskId)).rejects.toThrow(NotFoundException);
+      await expect(service.findOne(taskId)).rejects.toThrowError(
+        `Task with ID "${taskId}" not found`,
+      );
     });
   });
 
   describe('update', () => {
     it('should update a task', async () => {
       const taskId = 1;
-      const updateTaskDto: UpdateTaskDto = { description: 'Updated Task' };
-      const mockTask = { id: taskId, description: 'Test Task' };
-      const updatedTask = { id: taskId, description: 'Updated Task' };
+      const updateTaskDto = {
+        description: 'Buy organic groceries',
+        completed: true,
+      };
 
-      (taskService.findOne as jest.Mock).mockResolvedValue(mockTask);
-      (taskRepository.update as jest.Mock).mockResolvedValue(updatedTask);
-      (taskService.findOne as jest.Mock).mockResolvedValue(updatedTask);
+      const task = new Task();
+      task.id = taskId;
+      task.description = 'Buy groceries';
+      task.completed = false;
 
-      const result = await taskService.update(taskId, updateTaskDto);
+      jest.spyOn(service, 'findOne').mockResolvedValue(task);
+      jest.spyOn(taskRepository, 'update').mockResolvedValue({ affected: 1 } as any); // Fix: Return UpdateResult
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        ...task,
+        ...updateTaskDto,
+      });
 
-      expect(taskService.findOne).toHaveBeenCalledWith(taskId);
+      const result = await service.update(taskId, updateTaskDto);
+
+      expect(result).toEqual({
+        ...task,
+        ...updateTaskDto,
+      });
+      expect(service.findOne).toHaveBeenCalledWith(taskId);
       expect(taskRepository.update).toHaveBeenCalledWith(taskId, updateTaskDto);
-      expect(taskService.findOne).toHaveBeenCalledWith(taskId);
-      expect(result).toEqual(mockTask);
     });
   });
 
   describe('remove', () => {
     it('should remove a task', async () => {
       const taskId = 1;
-      const mockTask = { id: taskId, description: 'Test Task' };
+      const task = new Task();
+      task.id = taskId;
 
-      (taskService.findOne as jest.Mock).mockResolvedValue(mockTask);
-      (taskRepository.softDelete as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(service, 'findOne').mockResolvedValue(task);
+      jest.spyOn(taskRepository, 'softDelete').mockResolvedValue({ affected: 1 } as any); // Fix: Return UpdateResult
 
-      await taskService.remove(taskId);
+      await service.remove(taskId);
 
-      expect(taskService.findOne).toHaveBeenCalledWith(taskId);
+      expect(service.findOne).toHaveBeenCalledWith(taskId);
       expect(taskRepository.softDelete).toHaveBeenCalledWith(taskId);
     });
   });

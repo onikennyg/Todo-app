@@ -1,60 +1,66 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { LocalStrategy } from './local.strategy';
-import { AuthService } from '../auth.service'; // Adjust path as needed
+import { UserService } from 'src/user/user.service';
 import { UnauthorizedException } from '@nestjs/common';
-
-const mockAuthService = () => ({
-  validateUser: jest.fn(),
-});
-
-type MockAuthService = Partial<Record<keyof AuthService, jest.Mock>>;
+import { Test } from '@nestjs/testing';
+import { User } from 'src/user/entities/user.entity';
 
 describe('LocalStrategy', () => {
   let localStrategy: LocalStrategy;
-  let authService: MockAuthService;
+  let userService: UserService;
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
+    const module = await Test.createTestingModule({
       providers: [
         LocalStrategy,
         {
-          provide: AuthService,
-          useFactory: mockAuthService,
+          provide: UserService,
+          useValue: {
+            findUserByEmail: jest.fn(),
+          },
         },
       ],
     }).compile();
 
     localStrategy = module.get<LocalStrategy>(LocalStrategy);
-    authService = module.get(AuthService);
+    userService = module.get<UserService>(UserService);
   });
 
-  it('should be defined', () => {
-    expect(localStrategy).toBeDefined();
+  it('should validate and return user if credentials are correct', async () => {
+    const user: User = {
+      id: 1,
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'test@example.com',
+      password: 'password',
+      role: 'USER',
+      todos: [], // Add todos as it's part of the User entity
+    };
+
+    jest.spyOn(userService, 'findUserByEmail').mockResolvedValue(user);
+
+    const result = await localStrategy.validate(user.email, user.password);
+    expect(result).toEqual(user);
   });
 
-  describe('validate', () => {
-    it('should return a user if the credentials are valid', async () => {
-      const email = 'test@example.com';
-      const password = 'password';
-      const mockUser = { id: 1, email: email, password: password };
+  it('should throw UnauthorizedException if user is not found', async () => {
+    jest.spyOn(userService, 'findUserByEmail').mockResolvedValue(null);
 
-      (authService.validateUser as jest.Mock).mockResolvedValue(mockUser);
+    await expect(localStrategy.validate('test@example.com', 'password')).rejects.toThrow(UnauthorizedException);
+  });
 
-      const result = await localStrategy.validate(email, password);
+  it('should throw UnauthorizedException if password is invalid', async () => {
+    const user: User = {
+      id: 1,
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'test@example.com',
+      password: 'password',
+      role: 'USER',
+      todos: [], // Add todos as it's part of the User entity
+    };
 
-      expect(authService.validateUser).toHaveBeenCalledWith(email, password);
-      expect(result).toEqual(mockUser);
-    });
+    jest.spyOn(userService, 'findUserByEmail').mockResolvedValue(user);
 
-    it('should throw an UnauthorizedException if the credentials are invalid', async () => {
-      const email = 'test@example.com';
-      const password = 'wrongPassword';
-
-      (authService.validateUser as jest.Mock).mockResolvedValue(null);
-
-      await expect(localStrategy.validate(email, password)).rejects.toThrow(
-        UnauthorizedException,
-      );
-    });
+    await expect(localStrategy.validate(user.email, 'wrong-password')).rejects.toThrow(UnauthorizedException);
   });
 });

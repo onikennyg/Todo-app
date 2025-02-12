@@ -1,32 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UserService } from './user.service';
-import { UserRepository } from './repo/user.repository'; // Adjust the path
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { UserService } from './user.service';
 import { User } from './entities/user.entity';
-import { NotFoundException } from '@nestjs/common';
+import { UserRepository } from './repo/user.repository';
 import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-
-const mockUserRepository = () => ({
-  create: jest.fn(),
-  save: jest.fn(),
-  findOne: jest.fn(),
-  update: jest.fn(),
-  softDelete: jest.fn(),
-  createQueryBuilder: jest.fn().mockReturnValue({
-    leftJoinAndSelect: jest.fn().mockReturnThis(),
-    where: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    getMany: jest.fn().mockResolvedValue([]),
-    paginate: jest.fn().mockResolvedValue([]),
-  }),
-});
-
-type MockRepository<T = any> = Partial<Record<keyof UserRepository, jest.Mock>>;
+import { NotFoundException } from '@nestjs/common';
 
 describe('UserService', () => {
-  let userService: UserService;
-  let userRepository: MockRepository;
+  let service: UserService;
+  let userRepository: UserRepository;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -34,138 +16,104 @@ describe('UserService', () => {
         UserService,
         {
           provide: getRepositoryToken(User),
-          useFactory: mockUserRepository,
+          useClass: UserRepository,
         },
       ],
     }).compile();
 
-    userService = module.get<UserService>(UserService);
-    userRepository = module.get(getRepositoryToken(User));
+    service = module.get<UserService>(UserService);
+    userRepository = module.get<UserRepository>(getRepositoryToken(User));
   });
 
   it('should be defined', () => {
-    expect(userService).toBeDefined();
+    expect(service).toBeDefined();
   });
 
   describe('create', () => {
     it('should create a user', async () => {
       const createUserDto: CreateUserDto = {
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'test@example.com',
-        password: 'password',
-        role: 'user',
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john.doe@example.com',
+        password: 'securePassword',
       };
-      const mockUser = { id: 1, ...createUserDto };
 
-      (userRepository.create as jest.Mock).mockReturnValue(mockUser);
-      (userRepository.save as jest.Mock).mockResolvedValue(mockUser);
+      const user = new User();
+      user.firstName = createUserDto.firstName;
+      user.lastName = createUserDto.lastName;
+      user.email = createUserDto.email;
+      user.password = createUserDto.password;
+      user.role = 'NORMAL_USER_ROLE';
 
-      const result = await userService.create(createUserDto);
+      jest.spyOn(userRepository, 'save').mockResolvedValue(user);
 
-      expect(userRepository.create).toHaveBeenCalledWith(createUserDto);
-      expect(userRepository.save).toHaveBeenCalledWith(mockUser);
-      expect(result).toEqual(mockUser);
+      const result = await service.create(createUserDto);
+
+      expect(result).toEqual(user);
+      expect(userRepository.save).toHaveBeenCalledWith(user);
     });
   });
 
-  describe('findAll', () => {
-    it('should return a paginated list of users', async () => {
-      const options = { page: 1, limit: 10 };
-      const mockUsers = [
-        {
-          id: 1,
-          firstName: 'Test',
-          lastName: 'User',
-          email: 'test@example.com',
-          password: 'password',
-          role: 'user',
-        },
-      ];
-
-      (userRepository.createQueryBuilder as jest.Mock)().getMany.mockResolvedValue(mockUsers);
-      const result = await userService.findAll(options);
-
-      expect(userRepository.createQueryBuilder).toHaveBeenCalled();
-      expect(result).toEqual(mockUsers);
-    });
-  });
-
-  describe('findOne', () => {
-    it('should return a user by id', async () => {
+  describe('findUserById', () => {
+    it('should return a user by ID', async () => {
       const userId = 1;
-      const mockUser = {
-        id: userId,
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'test@example.com',
-        password: 'password',
-        role: 'user',
-      };
+      const user = new User();
+      user.id = userId;
 
-      (userRepository.findOne as jest.Mock).mockResolvedValue(mockUser);
+      jest.spyOn(userRepository, 'findOneOrFail').mockResolvedValue(user);
 
-      const result = await userService.findOne(userId);
+      const result = await service.findUserById(userId);
 
-      expect(userRepository.findOne).toHaveBeenCalledWith({ where: { id: userId } });
-      expect(result).toEqual(mockUser);
+      expect(result).toEqual(user);
+      expect(userRepository.findOneOrFail).toHaveBeenCalledWith({ where: { id: userId } });
     });
 
     it('should throw NotFoundException if user is not found', async () => {
       const userId = 1;
 
-      (userRepository.findOne as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(userRepository, 'findOneOrFail').mockRejectedValue(new NotFoundException());
 
-      await expect(userService.findOne(userId)).rejects.toThrow(NotFoundException);
+      await expect(service.findUserById(userId)).rejects.toThrowError(NotFoundException);
     });
   });
 
-  describe('update', () => {
-    it('should update a user', async () => {
-      const userId = 1;
-      const updateUserDto: UpdateUserDto = { firstName: 'Updated' };
-      const mockUser = {
-        id: userId,
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'test@example.com',
-        password: 'password',
-        role: 'user',
-      };
-      const updatedUser = { ...mockUser, ...updateUserDto };
+  describe('findAll', () => {
+    it('should return all users', async () => {
+      const users = [new User(), new User()];
 
-      (userService.findOne as jest.Mock).mockResolvedValue(mockUser);
-      (userRepository.update as jest.Mock).mockResolvedValue(updatedUser);
-      (userService.findOne as jest.Mock).mockResolvedValue(updatedUser);
+      jest.spyOn(userRepository, 'find').mockResolvedValue(users);
 
-      const result = await userService.update(userId, updateUserDto);
+      const result = await service.findAll();
 
-      expect(userService.findOne).toHaveBeenCalledWith(userId);
-      expect(userRepository.update).toHaveBeenCalledWith(userId, updateUserDto);
-      expect(userService.findOne).toHaveBeenCalledWith(userId);
-      expect(result).toEqual(mockUser);
+      expect(result).toEqual(users);
+      expect(userRepository.find).toHaveBeenCalled();
+    });
+  });
+
+  describe('findUserByEmail', () => {
+    it('should return a user by email', async () => {
+      const email = 'john.doe@example.com';
+      const user = new User();
+      user.email = email;
+
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(user);
+
+      const result = await service.findUserByEmail(email);
+
+      expect(result).toEqual(user);
+      expect(userRepository.findOne).toHaveBeenCalledWith({ where: { email } });
     });
   });
 
   describe('remove', () => {
     it('should remove a user', async () => {
       const userId = 1;
-      const mockUser = {
-        id: userId,
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'test@example.com',
-        password: 'password',
-        role: 'user',
-      };
 
-      (userService.findOne as jest.Mock).mockResolvedValue(mockUser);
-      (userRepository.softDelete as jest.Mock).mockResolvedValue(undefined);
+      jest.spyOn(userRepository, 'delete').mockResolvedValue({ affected: 1 } as any);
 
-      await userService.remove(userId);
+      await service.remove(userId);
 
-      expect(userService.findOne).toHaveBeenCalledWith(userId);
-      expect(userRepository.softDelete).toHaveBeenCalledWith(userId);
+      expect(userRepository.delete).toHaveBeenCalledWith(userId);
     });
   });
 });
